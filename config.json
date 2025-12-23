@@ -1,20 +1,20 @@
 [
   {
-    "task_name": "MacBook Air M1",
+    "task_name": "MacBook Air",
     "enabled": true,
-    "keyword": "macbook air m1",
+    "keyword": "MacBook Air",
     "max_pages": 5,
     "personal_only": true,
     "min_price": "3000",
     "max_price": "5000",
-    "cron": "3 12 * * *",
+    "cron": "0 0 0/1  * * ?",
     "ai_prompt_base_file": "prompts/base_prompt.txt",
     "ai_prompt_criteria_file": "prompts/macbook_criteria.txt",
     "is_running": false
   },
   {
     "task_name": "DJI Mini 3 Pro",
-    "enabled": true,
+    "enabled": false,
     "keyword": "mini 3 pro",
     "max_pages": 3,
     "personal_only": true,
@@ -36,6 +36,62 @@
     "cron": "",
     "ai_prompt_base_file": "prompts/base_prompt.txt",
     "ai_prompt_criteria_file": "prompts/babycare_婴儿车_criteria.txt",
+    "is_running": false
+  },
+  {
+    "task_name": "咖啡机",
+    "enabled": true,
+    "keyword": "咖啡机",
+    "max_pages": 5,
+    "personal_only": true,
+    "min_price": "300",
+    "max_price": "1000",
+    "cron": "0 0 0/1  * * ?",
+    "description": "家用咖啡机",
+    "ai_prompt_base_file": "prompts/base_prompt.txt",
+    "ai_prompt_criteria_file": "prompts/咖啡机_criteria.txt",
+    "is_running": false
+  },
+  {
+    "task_name": "NAS服务器",
+    "enabled": true,
+    "keyword": "飞牛 NAS ",
+    "max_pages": 3,
+    "personal_only": true,
+    "min_price": null,
+    "max_price": "500",
+    "cron": "0 0 0/1  * * ?",
+    "description": "飞牛NAS服务器",
+    "ai_prompt_base_file": "prompts/base_prompt.txt",
+    "ai_prompt_criteria_file": "prompts/飞牛_nas__criteria.txt",
+    "is_running": false
+  },
+  {
+    "task_name": "固态硬盘",
+    "enabled": true,
+    "keyword": "固态硬盘 M2 SSD",
+    "max_pages": 5,
+    "personal_only": false,
+    "min_price": null,
+    "max_price": "300",
+    "cron": "0 0 0/1  * * ?",
+    "description": "固态硬盘，不低于1T大小，至少剩余使用寿命超过5年",
+    "ai_prompt_base_file": "prompts/base_prompt.txt",
+    "ai_prompt_criteria_file": "prompts/固态硬盘_m2_ssd_criteria.txt",
+    "is_running": false
+  },
+  {
+    "task_name": "iPad air",
+    "enabled": true,
+    "keyword": "iPad air",
+    "max_pages": 5,
+    "personal_only": true,
+    "min_price": "500",
+    "max_price": "2000",
+    "cron": "0 0 0/1  * * ?",
+    "description": "只要M芯片，未拆机维修过的",
+    "ai_prompt_base_file": "prompts/base_prompt.txt",
+    "ai_prompt_criteria_file": "prompts/ipad_air_criteria.txt",
     "is_running": false
   }
 ]
