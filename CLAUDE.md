@@ -2,129 +2,101 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## 项目概述
 
-This is an intelligent monitoring robot for Xianyu (Goofish), a Chinese second-hand marketplace. It uses Playwright for web scraping and AI (multimodal LLMs) for intelligent filtering and analysis of listings. The project features a comprehensive web-based management interface built with FastAPI.
+基于 Playwright + AI 的闲鱼智能监控机器人。FastAPI 后端 + Vue 3 前端，支持多任务并发监控、多模态 AI 商品分析、多渠道通知推送。
 
-Key features:
-- Web UI for task management, AI prompt editing, real-time logs and result browsing
-- AI-driven task creation using natural language descriptions
-- Concurrent multi-task monitoring with independent configurations
-- Real-time stream processing of new listings
-- Deep AI analysis combining product images/text and seller profiling
-- Instant notifications via ntfy.sh, WeChat Work bots, and Bark
-- Cron-based task scheduling
-- Docker deployment support
-- Robust anti-scraping strategies with randomized delays
+## 核心架构
 
-## Repository Structure
-
-- `web_server.py`: Main FastAPI application with web UI and task management
-- `spider_v2.py`: Core spider script that executes monitoring tasks
-- `src/`: Core modules
-  - `scraper.py`: Main scraping logic and AI integration
-  - `ai_handler.py`: AI analysis and notification functions
-  - `parsers.py`: Data parsing for search results and user profiles
-  - `config.py`: Configuration management and AI client initialization
-  - `utils.py`: Utility functions (retry, random sleep, data formatting)
-  - `prompt_utils.py`: AI prompt generation for new tasks
-  - `task.py`: Task data models and file operations
-- `prompts/`: AI prompt templates and criteria files
-- `static/` and `templates/`: Web UI frontend files
-- `config.json`: Task configurations
-- `xianyu_state.json`: Login session state for authenticated scraping
-- `.env`: Environment variables for API keys, notification settings, etc.
-
-## Common Development Commands
-
-### Setting up the environment
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Copy and configure environment variables
-cp .env.example .env
-# Edit .env with your settings
+```
+API层 (src/api/routes/)
+    ↓
+服务层 (src/services/)
+    ↓
+领域层 (src/domain/)
+    ↓
+基础设施层 (src/infrastructure/)
 ```
 
-### Running the application
-```bash
-# Start the web management interface
-python web_server.py
+关键入口：
+- `src/app.py` - FastAPI 应用主入口
+- `spider_v2.py` - 爬虫 CLI 入口
+- `src/scraper.py` - Playwright 爬虫核心逻辑
 
-# Run spider tasks directly (usually managed through web UI)
-python spider_v2.py
+服务层：
+- `TaskService` - 任务 CRUD
+- `ProcessService` - 爬虫子进程管理
+- `SchedulerService` - APScheduler 定时调度
+- `AIAnalysisService` - 多模态 AI 分析
+- `NotificationService` - 多渠道通知（ntfy/Bark/企业微信/Telegram/Webhook）
+
+前端 (`web-ui/`)：Vue 3 + Vite + shadcn-vue + Tailwind CSS
+
+## 开发命令
+
+```bash
+# 后端开发
+python -m src.app
+# 或
+uvicorn src.app:app --host 0.0.0.0 --port 8000 --reload
+
+# 前端开发
+cd web-ui && npm install && npm run dev
+
+# 前端构建
+cd web-ui && npm run build
+
+# 一键本地启动（构建前端 + 启动后端）
+bash start.sh
+
+# Docker 部署
+docker compose up --build -d
 ```
 
-### Docker deployment
+## 爬虫命令
+
 ```bash
-# Build and start services
-docker-compose up --build -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
+python spider_v2.py                          # 运行所有启用任务
+python spider_v2.py --task-name "MacBook"    # 运行指定任务
+python spider_v2.py --debug-limit 3          # 调试模式，限制商品数
+python spider_v2.py --config custom.json     # 自定义配置文件
 ```
 
-### Development utilities
+## 测试
+
 ```bash
-# Generate new AI criteria files from natural language descriptions
-python prompt_generator.py
+pytest                              # 运行所有测试
+pytest --cov=src                    # 覆盖率报告
+pytest tests/unit/test_utils.py    # 运行单个测试文件
+pytest tests/unit/test_utils.py::test_safe_get  # 运行单个测试函数
 ```
 
-## Core Architecture
+测试规范：文件 `tests/**/test_*.py`，函数 `test_*`
 
-### Web Management Interface (web_server.py)
-- FastAPI application providing REST API and serving web UI
-- Authentication using HTTP Basic Auth
-- Task lifecycle management (create, update, start, stop, delete)
-- Real-time log streaming and result browsing
-- AI prompt file editing
-- System status monitoring
-- Scheduler integration for cron-based tasks
+## 配置
 
-### Spider Engine (spider_v2.py)
-- Asynchronous task execution using asyncio
-- Playwright integration for browser automation
-- Multi-task concurrent processing
-- Configurable search filters (keywords, price ranges, personal items only)
-- Detailed product and seller information extraction
+环境变量 (`.env`)：
+- AI 模型：`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL_NAME`
+- 通知：`NTFY_TOPIC_URL`, `BARK_URL`, `WX_BOT_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
+- 爬虫：`RUN_HEADLESS`, `LOGIN_IS_EDGE`
+- Web 认证：`WEB_USERNAME`, `WEB_PASSWORD`
+- 端口：`SERVER_PORT`
 
-### Scraping & Analysis (src/scraper.py)
-- Playwright-based web scraping with anti-detection measures
-- User profile scraping (seller/buyer ratings, transaction history)
-- Image downloading for AI analysis
-- Real-time AI analysis pipeline with retry logic
-- Notification sending for recommended items
+任务配置 (`config.json`)：定义监控任务（关键词、价格范围、cron 表达式、AI prompt 文件等）
 
-### AI Processing (src/ai_handler.py)
-- Multimodal AI analysis of product images and structured data
-- Integration with OpenAI-compatible APIs
-- Base64 image encoding for model input
-- Response validation and error handling
-- Notification services (ntfy, WeChat Work, Bark, Webhook)
+## 数据流
 
-### Data Flow
-1. Tasks defined in `config.json` are loaded by `spider_v2.py`
-2. Playwright performs authenticated searches on Goofish
-3. New listings are detected and detailed information scraped
-4. Product images are downloaded
-5. Complete product/seller data sent to AI for analysis
-6. AI response determines if item meets criteria
-7. Recommended items trigger notifications
-8. All results saved to JSONL files
-9. Web UI provides management interface for all components
+1. Web UI / config.json 创建任务
+2. SchedulerService 按 cron 触发或手动启动
+3. ProcessService 启动 spider_v2.py 子进程
+4. scraper.py 使用 Playwright 抓取商品
+5. AIAnalysisService 调用多模态模型分析
+6. NotificationService 推送符合条件的商品
+7. 结果存储：`jsonl/`（数据）、`images/`（图片）、`logs/`（日志）
 
-## Key Configuration Files
+## 注意事项
 
-- `.env`: API keys, notification settings, web auth credentials
-- `config.json`: Monitoring task definitions with filters and AI prompts
-- `xianyu_state.json`: Browser session state for authenticated scraping
-- Prompt files in `prompts/` directory define AI analysis criteria
-
-开发文档
-@[XIANYU_MONITOR_DOCUMENTATION.md](XIANYU_MONITOR_DOCUMENTATION.md)
-
-Always respond in Chinese-simplified
+- AI 模型必须支持图片上传（多模态）
+- Docker 部署需通过 Web UI 手动更新登录状态（`state.json`）
+- 遇到滑动验证码时设置 `RUN_HEADLESS=false` 手动处理
+- 生产环境务必修改默认 Web 认证密码

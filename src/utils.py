@@ -4,12 +4,15 @@ import math
 import os
 import random
 import re
+import glob
 from datetime import datetime
 from functools import wraps
 from urllib.parse import quote
 
 from openai import APIStatusError
 from requests.exceptions import HTTPError
+
+from src.services.result_storage_service import save_result_record
 
 
 def retry_on_failure(retries=3, delay=5):
@@ -71,6 +74,34 @@ def log_time(message: str, prefix: str = "") -> None:
     print(f"[{ts}] {prefix}{message}")
 
 
+def sanitize_filename(value: str) -> str:
+    """生成安全的文件名片段。"""
+    if not value:
+        return "task"
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "_", value.strip())
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    return cleaned or "task"
+
+
+def build_task_log_path(task_id: int, task_name: str) -> str:
+    """生成任务日志路径（包含任务名）。"""
+    safe_name = sanitize_filename(task_name)
+    filename = f"{safe_name}_{task_id}.log"
+    return os.path.join("logs", filename)
+
+
+def resolve_task_log_path(task_id: int, task_name: str) -> str:
+    """优先使用任务名生成日志路径，不存在时回退为按 ID 匹配。"""
+    primary_path = build_task_log_path(task_id, task_name)
+    if os.path.exists(primary_path):
+        return primary_path
+    pattern = os.path.join("logs", f"*_{task_id}.log")
+    matches = glob.glob(pattern)
+    if matches:
+        return matches[0]
+    return primary_path
+
+
 def convert_goofish_link(url: str) -> str:
     """
     将Goofish商品链接转换为只包含商品ID的手机端格式。
@@ -89,16 +120,11 @@ def get_link_unique_key(link: str) -> str:
 
 
 async def save_to_jsonl(data_record: dict, keyword: str):
-    """将一个包含商品和卖家信息的完整记录追加保存到 .jsonl 文件。"""
-    output_dir = "jsonl"
-    os.makedirs(output_dir, exist_ok=True)
-    filename = os.path.join(output_dir, f"{keyword.replace(' ', '_')}_full_data.jsonl")
+    """兼容旧调用名，实际将结果写入 SQLite。"""
     try:
-        with open(filename, "a", encoding="utf-8") as f:
-            f.write(json.dumps(data_record, ensure_ascii=False) + "\n")
-        return True
-    except IOError as e:
-        print(f"写入文件 {filename} 出错: {e}")
+        return await save_result_record(data_record, keyword)
+    except Exception as e:
+        print(f"写入 SQLite 结果记录出错: {e}")
         return False
 
 

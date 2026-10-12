@@ -39,7 +39,7 @@ jobs:
             "NON_INTERACTIVE_MODE": true,
             "OPENAI_API_KEY": "${{ secrets.OPENAI_API_KEY }}",
             "OPENAI_BASE_URL": "https://api-inference.modelscope.cn/v1",
-            "OPENAI_MODEL": "ZhipuAI/GLM-4.6"
+            "OPENAI_MODEL": "MiniMax/MiniMax-M2.5"
           }
           EOF
         shell: bash
@@ -55,4 +55,4 @@ jobs:
         env:
           ANTHROPIC_BASE_URL: http://localhost:3456
         with:
-          anthropic_api_key: "any-string-is-ok"
+          anthropic_api_key: "Any-string-is-ok"
