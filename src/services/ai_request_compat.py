@@ -2,6 +2,7 @@
 
 import copy
 from typing import Any, Dict, Iterable, List
+from urllib.parse import urlsplit
 
 
 RESPONSES_API_MODE = "responses"
@@ -33,6 +34,22 @@ UNSUPPORTED_TEMPERATURE_MARKERS = (
     "temperature",
     "sampling temperature",
 )
+
+
+def apply_thinking_config(request_params: Dict[str, Any], *, base_url: str, enabled: bool) -> Dict[str, Any]:
+    """Explicitly control official DeepSeek thinking; retain other gateways' compatibility flag."""
+    params = dict(request_params)
+    if urlsplit(str(base_url or "")).hostname == "api.deepseek.com":
+        if "input" in params:
+            params["reasoning"] = {**dict(params.get("reasoning") or {}), "effort": "high" if enabled else "none"}
+        else:
+            extra = dict(params.get("extra_body") or {})
+            extra.pop("enable_thinking", None)
+            extra["thinking"] = {"type": "enabled" if enabled else "disabled"}
+            params["extra_body"] = extra
+    elif enabled:
+        params["extra_body"] = {**dict(params.get("extra_body") or {}), "enable_thinking": False}
+    return params
 
 
 def build_responses_input(messages: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:

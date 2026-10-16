@@ -20,6 +20,7 @@ from src.services.ai_request_compat import (
     CHAT_COMPLETIONS_API_MODE,
     RESPONSES_API_MODE,
     build_ai_request_params,
+    apply_thinking_config,
     create_ai_response_async,
     is_chat_completions_api_unsupported_error,
     is_json_output_unsupported_error,
@@ -29,6 +30,7 @@ from src.services.ai_request_compat import (
 )
 from src.services.ai_response_parser import (
     EmptyAIResponseError,
+    TruncatedAIResponseError,
     extract_ai_response_content,
     parse_ai_response_json,
 )
@@ -224,8 +226,11 @@ class AIClient:
             if not use_temperature:
                 request_params = remove_temperature_param(request_params)
 
-            if self.settings.enable_thinking:
-                request_params["extra_body"] = {"enable_thinking": False}
+            request_params = apply_thinking_config(
+                request_params,
+                base_url=getattr(self.settings, "base_url", ""),
+                enabled=self.settings.enable_thinking,
+            )
 
             try:
                 response = await create_ai_response_async(
@@ -233,7 +238,14 @@ class AIClient:
                     api_mode,
                     request_params,
                 )
-                return extract_ai_response_content(response)
+                return extract_ai_response_content(response, allow_reasoning_fallback=False)
+            except TruncatedAIResponseError as exc:
+                next_budget = min(max_output_tokens * 2, 16000)
+                if attempt < max_attempts - 1 and next_budget > max_output_tokens:
+                    print(f"AI输出被截断，将 token 上限从 {max_output_tokens} 提升至 {next_budget} 后重试")
+                    max_output_tokens = next_budget
+                    continue
+                raise exc
             except EmptyAIResponseError as exc:
                 if attempt < max_attempts - 1:
                     print(

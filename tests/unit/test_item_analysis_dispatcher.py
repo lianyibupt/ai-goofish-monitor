@@ -129,3 +129,29 @@ def test_item_analysis_dispatcher_supports_keyword_mode_without_ai():
     asyncio.run(run())
     assert saved_records[0]["ai_analysis"]["analysis_source"] == "keyword"
     assert saved_records[0]["ai_analysis"]["is_recommended"] is True
+
+
+def test_dispatcher_preserves_credit_captured_in_existing_chrome():
+    saved = []
+    async def seller_loader(_):
+        return {}
+    async def no_op(*args):
+        return []
+    async def ai(record, *args):
+        assert record['卖家信息']['卖家信用等级'] == '卖家信用优秀'
+        assert record['卖家信息']['卖家注册时长'] == '来闲鱼3年'
+        assert record['卖家信息']['卖家芝麻信用'] == '芝麻信用良好'
+        return {'is_recommended': False, 'reason': '其他要求待核实'}
+    async def saver(record, keyword):
+        saved.append(record)
+        return True
+    async def run():
+        dispatcher = ItemAnalysisDispatcher(concurrency=1, skip_ai_analysis=False, seller_loader=seller_loader,
+            image_downloader=no_op, ai_analyzer=ai, notifier=no_op, saver=saver)
+        dispatcher.submit(ItemAnalysisJob(keyword='OPPO',task_name='OPPO',decision_mode='ai',analyze_images=False,
+            prompt_text='JSON',keyword_rules=(),final_record={'商品信息':{'商品ID':'123'},'卖家信息':{
+                '卖家信用等级':'卖家信用优秀','卖家注册时长':'来闲鱼3年','卖家芝麻信用':'芝麻信用良好'}},
+            seller_id=None,zhima_credit_text=None,registration_duration_text='未知'))
+        await dispatcher.join()
+    asyncio.run(run())
+    assert 'error' not in saved[0]['ai_analysis']

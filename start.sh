@@ -54,6 +54,10 @@ case "$(uname -s 2>/dev/null || echo unknown)" in
 esac
 
 MISSING_ITEMS=()
+CHROME_EXISTING_MODE=false
+if [ -f .env ] && grep -Eqi '^[[:space:]]*CHROME_BROWSER_MODE[[:space:]]*=[[:space:]]*existing[[:space:]]*$' .env; then
+    CHROME_EXISTING_MODE=true
+fi
 
 if ! command -v python3 >/dev/null 2>&1; then
     MISSING_ITEMS+=("python3(>=3.10)")
@@ -75,39 +79,46 @@ if ! command -v npm >/dev/null 2>&1; then
     MISSING_ITEMS+=("npm")
 fi
 
-if ! python3 -m playwright --version >/dev/null 2>&1; then
+if [ "$CHROME_EXISTING_MODE" = false ] && ! python3 -m playwright --version >/dev/null 2>&1; then
     MISSING_ITEMS+=("playwright")
 fi
 
 has_browser=false
 case "$OS_FAMILY" in
     macos)
-        if [ -d "/Applications/Google Chrome.app" ] || [ -d "/Applications/Microsoft Edge.app" ]; then
+        if [ -d "/Applications/Google Chrome.app" ] \
+            || { [ "$CHROME_EXISTING_MODE" = false ] && [ -d "/Applications/Microsoft Edge.app" ]; }; then
             has_browser=true
         fi
         ;;
     linux|wsl)
         if command -v google-chrome >/dev/null 2>&1 \
             || command -v google-chrome-stable >/dev/null 2>&1 \
-            || command -v chromium >/dev/null 2>&1 \
-            || command -v chromium-browser >/dev/null 2>&1 \
-            || command -v microsoft-edge >/dev/null 2>&1 \
-            || command -v microsoft-edge-stable >/dev/null 2>&1; then
+            || { [ "$CHROME_EXISTING_MODE" = false ] && \
+                { command -v chromium >/dev/null 2>&1 \
+                    || command -v chromium-browser >/dev/null 2>&1 \
+                    || command -v microsoft-edge >/dev/null 2>&1 \
+                    || command -v microsoft-edge-stable >/dev/null 2>&1; }; }; then
             has_browser=true
         fi
         ;;
     windows)
         if [ -d "/c/Program Files/Google/Chrome/Application" ] \
             || [ -d "/c/Program Files (x86)/Google/Chrome/Application" ] \
-            || [ -d "/c/Program Files (x86)/Microsoft/Edge/Application" ] \
-            || [ -d "/c/Program Files/Microsoft/Edge/Application" ]; then
+            || { [ "$CHROME_EXISTING_MODE" = false ] && \
+                { [ -d "/c/Program Files (x86)/Microsoft/Edge/Application" ] \
+                    || [ -d "/c/Program Files/Microsoft/Edge/Application" ]; }; }; then
             has_browser=true
         fi
         ;;
 esac
 
 if [ "$has_browser" = false ]; then
-    MISSING_ITEMS+=("浏览器(Chrome 或 Edge)")
+    if [ "$CHROME_EXISTING_MODE" = true ]; then
+        MISSING_ITEMS+=("Google Chrome")
+    else
+        MISSING_ITEMS+=("浏览器(Chrome 或 Edge)")
+    fi
 fi
 
 

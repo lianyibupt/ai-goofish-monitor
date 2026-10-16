@@ -1,0 +1,62 @@
+<h2>会议纪要网页的信息架构</h2>
+<p class="subtitle">主题：聊下 Groot 支持 Pine · 基于 37 分钟原始逐字稿整理</p>
+
+<div class="mockup">
+  <div class="mockup-header">Pine × Groot / 会议行动简报</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+      <div class="card">
+        <strong>3</strong><br><span class="subtitle">核心工作流</span>
+      </div>
+      <div class="card">
+        <strong>4</strong><br><span class="subtitle">关键依赖与风险</span>
+      </div>
+      <div class="card">
+        <strong>Q4</strong><br><span class="subtitle">目标：达到 80% 深度</span>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="card">
+        <div class="label">优先工作流</div>
+        <h3>01 异动归因</h3>
+        <p>补充端内、产品、竞品及发版数据；统一表权限；支持更细颗粒度下钻。</p>
+      </div>
+      <div class="card">
+        <div class="label">优先工作流</div>
+        <h3>02 预算分配</h3>
+        <p>先按手段承接目标，再向渠道拆解；沉淀约束与策略经验，迭代模型。</p>
+      </div>
+      <div class="card">
+        <div class="label">优先工作流</div>
+        <h3>03 素材自动化</h3>
+        <p>自动识别素材优劣并给出方向；生产侧 AIGC 与数据自动化分别推进。</p>
+      </div>
+      <div class="card">
+        <div class="label">风险与依赖</div>
+        <h3>数据时效与权限</h3>
+        <p>小时级按渠道汇总数据、平台表权限、操作权限边界，是能力落地的前提。</p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="label">行动路线</div>
+      <p>数据集清单与示例共享 → 统一接入与权限申请 → 验证现有能力 → 预算/素材场景迭代 → 实时数据可行性调研</p>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="executive-brief" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>行动简报（推荐）</h3>
+      <p>突出结论、优先级、责任与下一步，适合会后推动协作。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="detailed-record" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>详细复盘</h3>
+      <p>保留更多背景、讨论过程与原话摘要，适合长期归档。</p>
+    </div>
+  </div>
+</div>

@@ -123,3 +123,29 @@ def test_generate_request_requires_state_file_for_fixed_account_strategy():
         return
 
     raise AssertionError("固定账号模式应要求 account_state_file")
+
+
+def test_status_update_preserves_fixed_account_configuration():
+    task = Task(
+        id=1,
+        task_name="Sony A7M4",
+        enabled=True,
+        keyword="sony a7m4",
+        description="body",
+        max_pages=2,
+        personal_only=True,
+        min_price=None,
+        max_price=None,
+        cron=None,
+        ai_prompt_base_file="prompts/base_prompt.txt",
+        ai_prompt_criteria_file="prompts/sony_a7m4_criteria.txt",
+        account_strategy="fixed",
+        account_state_file="state/elon.json",
+        is_running=False,
+    )
+
+    updated = task.apply_update(TaskUpdate(is_running=True))
+
+    assert updated.is_running is True
+    assert updated.account_strategy == "fixed"
+    assert updated.account_state_file == "state/elon.json"

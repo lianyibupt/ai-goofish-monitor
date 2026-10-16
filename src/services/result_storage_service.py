@@ -151,6 +151,40 @@ async def save_result_record(record: dict, keyword: str) -> bool:
     return await asyncio.to_thread(_save_result_record_sync, record, keyword)
 
 
+async def replace_failed_ai_analysis(record_id: int, expected_raw_json: str, analysis: dict) -> bool:
+    """Replace a failed analysis without changing the item or its visibility.
+
+    Compare the original payload so a concurrent edit cannot be overwritten.
+    The caller must validate the new AI response before saving it.
+    """
+    return await asyncio.to_thread(
+        _replace_failed_ai_analysis_sync, record_id, expected_raw_json, analysis
+    )
+
+
+def _replace_failed_ai_analysis_sync(record_id: int, expected_raw_json: str, analysis: dict) -> bool:
+    record = json.loads(expected_raw_json)
+    previous = record.get("ai_analysis") or {}
+    if not isinstance(previous, dict) or not previous.get("error"):
+        return False
+    if not isinstance(analysis, dict) or analysis.get("error") or not isinstance(analysis.get("is_recommended"), bool):
+        raise ValueError("Replacement AI analysis must be a successful, validated response")
+    replacement = dict(analysis)
+    replacement["analysis_source"] = "ai"
+    replacement["keyword_hit_count"] = 0
+    record["ai_analysis"] = replacement
+    bootstrap_sqlite_storage()
+    with sqlite_connection() as conn:
+        cursor = conn.execute(
+            """UPDATE result_items
+               SET is_recommended=?, analysis_source='ai', keyword_hit_count=0, raw_json=?
+               WHERE id=? AND raw_json=?""",
+            (int(replacement["is_recommended"]), json.dumps(record, ensure_ascii=False), record_id, expected_raw_json),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+
+
 def _save_result_record_sync(record: dict, keyword: str) -> bool:
     bootstrap_sqlite_storage()
     item = record.get("商品信息", {}) or {}
@@ -204,6 +238,52 @@ def load_processed_link_keys(keyword: str) -> set[str]:
             (filename,),
         ).fetchall()
     return {str(row["link_unique_key"]) for row in rows if row["link_unique_key"]}
+
+
+def load_seller_credit_refresh_candidates(keyword: str) -> dict[str, dict]:
+    """Find earlier decisions made without a captured seller credit badge."""
+    bootstrap_sqlite_storage()
+    with sqlite_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, link_unique_key, raw_json FROM result_items WHERE result_filename=?",
+            (build_result_filename(keyword),),
+        ).fetchall()
+    candidates = {}
+    for row in rows:
+        record = json.loads(row["raw_json"])
+        seller = record.get("卖家信息") or {}
+        if seller.get("卖家信用等级") not in (None, "", "暂无", "未知"):
+            continue
+        analysis = record.get("ai_analysis") or {}
+        credit_check = (analysis.get("criteria_analysis") or {}).get("seller_credit") or {}
+        if analysis.get("error") or credit_check.get("status") in {"FAIL", "UNKNOWN", "NEEDS_MANUAL_CHECK"}:
+            candidates[str(row["link_unique_key"])] = dict(row)
+    return candidates
+
+
+async def replace_seller_credit_analysis(record_id: int, expected_raw_json: str, seller_info: dict, analysis: dict) -> bool:
+    return await asyncio.to_thread(
+        _replace_seller_credit_analysis_sync, record_id, expected_raw_json, seller_info, analysis
+    )
+
+
+def _replace_seller_credit_analysis_sync(record_id: int, expected_raw_json: str, seller_info: dict, analysis: dict) -> bool:
+    if not seller_info.get("卖家信用等级", "").startswith("卖家信用"):
+        raise ValueError("缺少重新采集的卖家信用证据")
+    if analysis.get("error") or not isinstance(analysis.get("is_recommended"), bool):
+        raise ValueError("补采分析未成功")
+    record = json.loads(expected_raw_json)
+    record["卖家信息"] = {**(record.get("卖家信息") or {}), **seller_info}
+    record["ai_analysis"] = {**analysis, "analysis_source": "ai", "keyword_hit_count": 0}
+    bootstrap_sqlite_storage()
+    with sqlite_connection() as conn:
+        cursor = conn.execute(
+            """UPDATE result_items SET is_recommended=?, analysis_source='ai', keyword_hit_count=0, raw_json=?
+               WHERE id=? AND raw_json=?""",
+            (int(analysis["is_recommended"]), json.dumps(record, ensure_ascii=False), record_id, expected_raw_json),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
 
 
 async def list_result_filenames() -> list[str]:

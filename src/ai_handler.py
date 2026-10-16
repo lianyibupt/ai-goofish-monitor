@@ -32,6 +32,7 @@ from src.ai_message_builder import (
 )
 from src.services.ai_response_parser import (
     EmptyAIResponseError,
+    TruncatedAIResponseError,
     extract_ai_response_content,
     parse_ai_response_json,
 )
@@ -239,6 +240,9 @@ def encode_image_to_base64(image_path):
 
 def validate_ai_response_format(parsed_response):
     """验证AI响应的格式是否符合预期结构"""
+    if not isinstance(parsed_response, dict):
+        safe_print("   [AI分析] 警告：最终响应必须是 JSON 对象")
+        return False
     required_fields = [
         "prompt_version",
         "is_recommended",
@@ -370,6 +374,7 @@ async def get_ai_analysis(product_data, image_paths=None, prompt_text=""):
 
     # 增强的AI调用，包含更严格的结构化输出控制和重试机制
     max_retries = 4
+    max_output_tokens = 4000
     api_mode = CHAT_COMPLETIONS_API_MODE
     use_response_format = ENABLE_RESPONSE_FORMAT
     use_temperature = True
@@ -385,7 +390,7 @@ async def get_ai_analysis(product_data, image_paths=None, prompt_text=""):
                 model=MODEL_NAME,
                 messages=messages,
                 temperature=current_temperature,
-                max_output_tokens=4000,
+                max_output_tokens=max_output_tokens,
                 enable_json_output=use_response_format,
             )
             if not use_temperature:
@@ -409,7 +414,7 @@ async def get_ai_analysis(product_data, image_paths=None, prompt_text=""):
                 api_mode,
                 request_params,
             )
-            ai_response_content = extract_ai_response_content(response)
+            ai_response_content = extract_ai_response_content(response, allow_reasoning_fallback=False)
 
             if AI_DEBUG_MODE:
                 safe_print(f"\n--- [AI DEBUG] 第{attempt + 1}次尝试 ---")
@@ -442,6 +447,13 @@ async def get_ai_analysis(product_data, image_paths=None, prompt_text=""):
                     continue
                 raise e
 
+        except TruncatedAIResponseError as exc:
+            next_budget = min(max_output_tokens * 2, 16000)
+            if attempt < max_retries - 1 and next_budget > max_output_tokens:
+                safe_print(f"   [AI分析] 输出被截断，token 上限从 {max_output_tokens} 提升至 {next_budget} 后重试。")
+                max_output_tokens = next_budget
+                continue
+            raise exc
         except Exception as e:
             if (
                 api_mode == CHAT_COMPLETIONS_API_MODE

@@ -59,6 +59,7 @@ class FakeProcessService:
         self.started = []
         self.stopped = []
         self.reindexed = []
+        self.running_ids = set()
         self._on_started = None
         self._on_stopped = None
 
@@ -68,14 +69,19 @@ class FakeProcessService:
 
     async def start_task(self, task_id: int, task_name: str) -> bool:
         self.started.append((task_id, task_name))
+        self.running_ids.add(task_id)
         if self._on_started:
             await self._on_started(task_id)
         return True
 
-    async def stop_task(self, task_id: int):
+    async def stop_task(self, task_id: int, *, reason="收到停止请求"):
         self.stopped.append(task_id)
+        self.running_ids.discard(task_id)
         if self._on_stopped:
             await self._on_stopped(task_id)
+
+    def is_running(self, task_id: int) -> bool:
+        return task_id in self.running_ids
 
     def reindex_after_delete(self, deleted_task_id: int):
         self.reindexed.append(deleted_task_id)
@@ -149,6 +155,7 @@ def api_context(tmp_path):
         "config_file": config_file,
         "db_path": db_path,
         "process_service": process_service,
+        "task_service": task_service,
         "scheduler_service": scheduler_service,
         "task_generation_service": task_generation_service,
     }

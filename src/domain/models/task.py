@@ -68,11 +68,17 @@ def _normalize_payload_keywords(payload: Any) -> Any:
     if payload is None or not isinstance(payload, dict):
         return payload
     values = dict(payload)
-    values["account_state_file"] = clean_account_state_file(values.get("account_state_file"))
-    values["account_strategy"] = normalize_account_strategy(
-        values.get("account_strategy"),
-        values.get("account_state_file"),
-    )
+    has_account_state_file = "account_state_file" in values
+    has_account_strategy = "account_strategy" in values
+    if has_account_state_file:
+        values["account_state_file"] = clean_account_state_file(
+            values.get("account_state_file")
+        )
+    if has_account_state_file or has_account_strategy:
+        values["account_strategy"] = normalize_account_strategy(
+            values.get("account_strategy"),
+            values.get("account_state_file"),
+        )
     if "keyword_rules" in values:
         values["keyword_rules"] = _normalize_keyword_values(values.get("keyword_rules"))
     elif "keyword_rule_groups" in values:

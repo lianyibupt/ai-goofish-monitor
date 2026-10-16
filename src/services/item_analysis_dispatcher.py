@@ -85,9 +85,16 @@ class ItemAnalysisDispatcher:
                 seller_info = await self._seller_loader(job.seller_id)
             except Exception as exc:
                 print(f"   [卖家] 采集卖家 {job.seller_id} 信息失败: {exc}")
-        merged = copy.deepcopy(seller_info or {})
-        merged["卖家芝麻信用"] = job.zhima_credit_text
-        merged["卖家注册时长"] = job.registration_duration_text
+        merged = copy.deepcopy(job.final_record.get("卖家信息") or {})
+        merged.update({key: value for key, value in (seller_info or {}).items() if value not in (None, "", "暂无", "未知")})
+        if job.zhima_credit_text:
+            merged["卖家芝麻信用"] = job.zhima_credit_text
+        else:
+            merged.setdefault("卖家芝麻信用", None)
+        if job.registration_duration_text and job.registration_duration_text != "未知":
+            merged["卖家注册时长"] = job.registration_duration_text
+        else:
+            merged.setdefault("卖家注册时长", "未知")
         return merged
 
     async def _build_analysis_result(self, job: ItemAnalysisJob, record: dict) -> dict:

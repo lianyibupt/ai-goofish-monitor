@@ -46,7 +46,10 @@ from src.utils import (
 )
 from src.rotation import RotationPool, load_state_files, parse_proxy_pool, RotationItem
 from src.failure_guard import FailureGuard
-from src.services.account_strategy_service import resolve_account_runtime_plan
+from src.services.account_strategy_service import (
+    resolve_account_runtime_plan,
+    resolve_account_state_path,
+)
 from src.infrastructure.persistence.storage_names import build_result_filename
 from src.services.item_analysis_dispatcher import (
     ItemAnalysisDispatcher,
@@ -73,8 +76,31 @@ class LoginRequiredError(Exception):
     """Raised when Goofish redirects to the passport/mini_login flow."""
 
 
+class BrowserClosedError(Exception):
+    """浏览器在任务未取消时意外关闭。"""
+
+
 FAILURE_GUARD = FailureGuard()
 EDGE_DOCKER_WARNING_PRINTED = False
+
+
+def raise_browser_closed_error(cause: Exception) -> None:
+    raise BrowserClosedError(
+        "浏览器意外关闭。请保持自动打开的 Chrome 窗口运行，并检查系统是否终止了浏览器进程。"
+    ) from cause
+
+
+async def raise_if_goofish_access_denied(page) -> None:
+    """把站点的明确拒绝访问提示从普通导航超时中区分出来。"""
+    try:
+        body_text = await page.locator("body").inner_text(timeout=2000)
+    except PlaywrightTimeoutError:
+        return
+    if "非法访问" in body_text and "正常浏览器访问闲鱼" in body_text:
+        raise RiskControlError(
+            "闲鱼拒绝了自动化浏览器访问（页面提示：非法访问，请使用正常浏览器访问闲鱼）。"
+            "项目启动的是独立的 Playwright Chrome，并非当前日常 Chrome；本次不再轮换账号/IP重试。"
+        )
 
 
 def _is_login_url(url: str) -> bool:
@@ -282,6 +308,10 @@ def _get_seller_profile_cache_ttl(task_config: dict) -> int:
     configured = task_config.get("seller_profile_cache_ttl")
     default = _as_int(os.getenv("SELLER_PROFILE_CACHE_TTL"), 1800)
     return max(0, _as_int(configured, default))
+
+
+def _get_initial_page_timeout_ms() -> int:
+    return max(1000, _as_int(os.getenv("GOOFISH_INITIAL_PAGE_TIMEOUT_MS"), 60000))
 
 
 def _default_context_options() -> dict:
@@ -545,7 +575,10 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
         has_root_state_file=os.path.exists(STATE_FILE),
         available_account_files=account_items,
     )
-    forced_account = runtime_plan["forced_account"]
+    forced_account = resolve_account_state_path(
+        runtime_plan["forced_account"],
+        state_dir=rotation_settings["account_state_dir"],
+    )
     if runtime_plan["prefer_root_state"]:
         account_items = [STATE_FILE]
         rotation_settings["account_enabled"] = False
@@ -687,12 +720,13 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
             page = await context.new_page()
 
             try:
+                initial_page_timeout_ms = _get_initial_page_timeout_ms()
                 # 步骤 0 - 模拟真实用户：先访问首页（重要的反检测措施）
                 log_time("步骤 0 - 模拟真实用户访问首页...")
                 await page.goto(
                     "https://www.goofish.com/",
                     wait_until="domcontentloaded",
-                    timeout=30000,
+                    timeout=initial_page_timeout_ms,
                 )
                 log_time("[反爬] 在首页停留，模拟浏览...")
                 await random_sleep(1, 2)
@@ -709,7 +743,7 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
 
                 # 先监听搜索接口响应，再执行导航，避免错过首次请求
                 async with page.expect_response(
-                    is_search_results_response, timeout=30000
+                    is_search_results_response, timeout=initial_page_timeout_ms
                 ) as initial_response_info:
                     await page.goto(
                         search_url, wait_until="domcontentloaded", timeout=60000
@@ -749,9 +783,7 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                     print("这通常是因为操作过于频繁或被识别为机器人。")
                     print("建议：")
                     print("1. 停止脚本一段时间再试。")
-                    print(
-                        "2. (推荐) 在 .env 文件中设置 RUN_HEADLESS=false，以非无头模式运行，这有助于绕过检测。"
-                    )
+                    print("2. 检查闲鱼页面和账号状态；可见模式也可能被站点拒绝。")
                     print(f"任务 '{keyword}' 将在此处中止。")
                     print(
                         "==================================================================="
@@ -1202,6 +1234,7 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                     raise LoginRequiredError(
                         f"Login required: redirected to {page.url} (cookies/state likely expired)"
                     ) from e
+                await raise_if_goofish_access_denied(page)
                 print(f"\n操作超时错误: 页面元素或网络响应未在规定时间内出现。\n{e}")
                 raise
             except asyncio.CancelledError:
@@ -1209,8 +1242,7 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                 raise
             except Exception as e:
                 if type(e).__name__ == "TargetClosedError":
-                    log_time("浏览器已关闭，忽略后续异常（可能是任务被停止）。")
-                    return processed_item_count
+                    raise_browser_closed_error(e)
                 if "passport.goofish.com" in str(e):
                     raise LoginRequiredError(
                         f"Login required: redirected to passport flow ({e})"
@@ -1240,13 +1272,8 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
 
     # If this task is already in a paused state, skip immediately.
     task_name_for_guard = task_config.get("task_name", "未命名任务")
-    pause_cookie_path = None
-    if (
-        isinstance(task_config.get("account_state_file"), str)
-        and task_config.get("account_state_file").strip()
-    ):
-        pause_cookie_path = task_config.get("account_state_file").strip()
-    elif os.path.exists(STATE_FILE):
+    pause_cookie_path = forced_account
+    if not pause_cookie_path and os.path.exists(STATE_FILE):
         pause_cookie_path = STATE_FILE
 
     decision = FAILURE_GUARD.should_skip_start(

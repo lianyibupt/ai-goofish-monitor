@@ -82,3 +82,39 @@ def test_json_output_error_not_triggered_by_unrelated_400():
 def test_json_output_error_not_triggered_without_body():
     err = Exception("some random 400 error")
     assert is_json_output_unsupported_error(err) is False
+
+
+def test_legacy_config_explicitly_disables_deepseek_thinking(monkeypatch):
+    import src.config as config
+
+    monkeypatch.setattr(config, "BASE_URL", "https://api.deepseek.com/v1")
+    monkeypatch.setattr(config, "ENABLE_THINKING", False)
+    params = config.get_ai_request_params(messages=[], extra_body={"custom": True})
+    assert params["extra_body"] == {"custom": True, "thinking": {"type": "disabled"}}
+
+
+def test_legacy_config_enables_deepseek_thinking_when_requested(monkeypatch):
+    import src.config as config
+
+    monkeypatch.setattr(config, "BASE_URL", "https://api.deepseek.com/v1")
+    monkeypatch.setattr(config, "ENABLE_THINKING", True)
+    params = config.get_ai_request_params(messages=[])
+    assert params["extra_body"]["thinking"] == {"type": "enabled"}
+    assert "enable_thinking" not in params["extra_body"]
+
+
+def test_deepseek_responses_api_uses_reasoning_effort_none(monkeypatch):
+    import src.config as config
+
+    monkeypatch.setattr(config, "BASE_URL", "https://api.deepseek.com/v1")
+    monkeypatch.setattr(config, "ENABLE_THINKING", False)
+    params = config.get_ai_request_params(input=[], text={"format": {"type": "text"}})
+    assert params["reasoning"] == {"effort": "none"}
+
+
+def test_other_providers_do_not_receive_deepseek_thinking_parameters(monkeypatch):
+    import src.config as config
+
+    monkeypatch.setattr(config, "BASE_URL", "https://example.com/v1")
+    monkeypatch.setattr(config, "ENABLE_THINKING", False)
+    assert "extra_body" not in config.get_ai_request_params(messages=[])

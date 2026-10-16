@@ -59,20 +59,27 @@ def _validate_final_account_strategy(existing_task, task_update: TaskUpdate) -> 
 async def get_tasks(
     service: TaskService = Depends(get_task_service),
     scheduler_service: SchedulerService = Depends(get_scheduler_service),
+    process_service: ProcessService = Depends(get_process_service),
 ):
     """获取所有任务"""
     tasks = await service.get_all_tasks()
-    return serialize_tasks(tasks, scheduler_service)
+    current_tasks = [
+        task.model_copy(update={"is_running": process_service.is_running(task.id)})
+        for task in tasks
+    ]
+    return serialize_tasks(current_tasks, scheduler_service)
 @router.get("/{task_id}", response_model=dict)
 async def get_task(
     task_id: int,
     service: TaskService = Depends(get_task_service),
     scheduler_service: SchedulerService = Depends(get_scheduler_service),
+    process_service: ProcessService = Depends(get_process_service),
 ):
     """获取单个任务"""
     task = await service.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务未找到")
+    task = task.model_copy(update={"is_running": process_service.is_running(task_id)})
     return serialize_task(task, scheduler_service)
 @router.post("/", response_model=dict)
 async def create_task(
@@ -223,7 +230,7 @@ async def delete_task(
     if not task:
         raise HTTPException(status_code=404, detail="任务未找到")
 
-    await process_service.stop_task(task_id)
+    await process_service.stop_task(task_id, reason="删除任务")
     success = await service.delete_task(task_id)
     if not success:
         raise HTTPException(status_code=404, detail="任务未找到")
@@ -261,11 +268,19 @@ async def start_task(
         raise HTTPException(status_code=404, detail="任务未找到")
     if not task.enabled:
         raise HTTPException(status_code=400, detail="任务已被禁用，无法启动")
+    if process_service.is_running(task_id):
+        if not task.is_running:
+            await task_service.update_task_status(task_id, True)
+        return {"message": f"任务 '{task.task_name}' 已在运行中", "already_running": True}
     if task.is_running:
-        raise HTTPException(status_code=400, detail="任务已在运行中")
+        await task_service.update_task_status(task_id, False)
     success = await process_service.start_task(task_id, task.task_name)
     if not success:
+        if process_service.is_running(task_id):
+            await task_service.update_task_status(task_id, True)
+            return {"message": f"任务 '{task.task_name}' 已在运行中", "already_running": True}
         raise HTTPException(status_code=500, detail="启动任务失败")
+    await task_service.update_task_status(task_id, process_service.is_running(task_id))
     return {"message": f"任务 '{task.task_name}' 已启动"}
 @router.post("/stop/{task_id}", response_model=dict)
 async def stop_task(
@@ -277,5 +292,5 @@ async def stop_task(
     task = await task_service.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务未找到")
-    await process_service.stop_task(task_id)
+    await process_service.stop_task(task_id, reason="Web 界面停止任务")
     return {"message": f"任务ID {task_id} 已发送停止信号"}

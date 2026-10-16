@@ -1,4 +1,6 @@
 import pytest
+import json
+from types import SimpleNamespace
 
 from src.services.ai_response_parser import (
     extract_ai_response_content,
@@ -64,3 +66,35 @@ def test_extract_ai_response_content_raises_when_content_and_reasoning_content_a
 
     with pytest.raises(EmptyAIResponseError):
         extract_ai_response_content(response)
+
+
+def test_truncated_response_is_rejected_before_reading_reasoning_json():
+    response = SimpleNamespace(choices=[SimpleNamespace(
+        finish_reason="length",
+        message=SimpleNamespace(content=None, reasoning_content='{"is_recommended":true}'),
+    )])
+    with pytest.raises(ValueError, match="截断"):
+        extract_ai_response_content(response)
+
+
+def test_incomplete_responses_api_output_is_rejected():
+    response = SimpleNamespace(
+        status="incomplete", incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+        output_text='{"is_recommended":true}',
+    )
+    with pytest.raises(ValueError, match="截断"):
+        extract_ai_response_content(response)
+
+
+def test_analysis_can_require_final_content_without_reasoning_fallback():
+    response = SimpleNamespace(choices=[SimpleNamespace(
+        message=SimpleNamespace(content=None, reasoning_content='{"is_recommended":true}'),
+    )])
+    with pytest.raises(EmptyAIResponseError):
+        extract_ai_response_content(response, allow_reasoning_fallback=False)
+
+
+def test_truncated_outer_json_is_not_replaced_by_a_nested_object():
+    content = '{"prompt_version":"v1","criteria_analysis":{"seller_type":{"status":"PASS"}}'
+    with pytest.raises(json.JSONDecodeError):
+        parse_ai_response_json(content)

@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import threading
+from datetime import datetime
 from pathlib import Path
 
 from src.infrastructure.persistence.sqlite_connection import init_schema, sqlite_connection
@@ -23,6 +25,7 @@ LEGACY_PRICE_HISTORY_DIR = "price_history"
 TASKS_BOOTSTRAP_KEY = "bootstrap:legacy_tasks"
 RESULTS_BOOTSTRAP_KEY = "bootstrap:legacy_results"
 SNAPSHOTS_BOOTSTRAP_KEY = "bootstrap:legacy_price_snapshots"
+RESULT_SNAPSHOTS_MIGRATION_KEY = "migration:result_price_snapshots"
 
 
 def bootstrap_sqlite_storage(
@@ -38,6 +41,59 @@ def bootstrap_sqlite_storage(
             _import_tasks_if_needed(conn, legacy_config_file)
             _import_results_if_needed(conn, legacy_result_dir)
             _import_price_snapshots_if_needed(conn, legacy_price_history_dir)
+            _recover_result_price_snapshots_if_needed(conn)
+
+
+def _recover_result_price_snapshots_if_needed(conn) -> None:
+    """Recover stored observations for keywords that never recorded snapshots.
+
+    Result rows retain only the first saved observation of each item. Preserve
+    its original time and label recovered daily cohorts; do not invent runs or
+    supplement keywords that already have real market history.
+    """
+    if _bootstrap_completed(conn, RESULT_SNAPSHOTS_MIGRATION_KEY):
+        return
+    existing_slugs = {
+        str(row["keyword_slug"])
+        for row in conn.execute("SELECT DISTINCT keyword_slug FROM price_snapshots")
+    }
+    rows = conn.execute("SELECT * FROM result_items ORDER BY crawl_time, id").fetchall()
+    for row in rows:
+        keyword = str(row["keyword"] or normalize_keyword_from_filename(row["result_filename"]))
+        slug = normalize_keyword_slug(keyword)
+        price = row["price"]
+        item_id = str(row["item_id"] or row["link"] or "").strip()
+        if slug in existing_slugs or not item_id or price is None or not math.isfinite(price):
+            continue
+        try:
+            observed_at = datetime.fromisoformat(row["crawl_time"])
+            record = json.loads(row["raw_json"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(record, dict):
+            continue
+        item = record.get("商品信息") or {}
+        if not isinstance(item, dict):
+            item = {}
+        day = observed_at.date().isoformat()
+        _insert_price_snapshot(conn, {
+            "keyword": keyword,
+            "task_name": row["task_name"],
+            "snapshot_time": observed_at.isoformat(),
+            "snapshot_day": day,
+            "run_id": f"recovered:{slug}:{day}",
+            "item_id": item_id,
+            "title": row["title"],
+            "price": price,
+            "price_display": row["price_display"],
+            "tags": item.get("商品标签") or [],
+            "region": item.get("发货地区"),
+            "seller": row["seller_nickname"],
+            "publish_time": row["publish_time"],
+            "link": row["link"],
+        })
+    _mark_bootstrap_completed(conn, RESULT_SNAPSHOTS_MIGRATION_KEY)
+    conn.commit()
 
 
 def _table_is_empty(conn, table_name: str) -> bool:

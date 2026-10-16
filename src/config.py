@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
 from src.infrastructure.external.ai_client import _sanitize_no_proxy_env
+from src.services.ai_request_compat import apply_thinking_config
 
 # --- AI & Notification Configuration ---
 load_dotenv()
@@ -94,8 +95,7 @@ def get_ai_request_params(**kwargs):
     """
     构建AI请求参数，根据ENABLE_THINKING和ENABLE_RESPONSE_FORMAT环境变量决定是否添加相应参数
     """
-    if ENABLE_THINKING:
-        kwargs["extra_body"] = {"enable_thinking": False}
+    kwargs = apply_thinking_config(kwargs, base_url=BASE_URL, enabled=ENABLE_THINKING)
     
     # 如果禁用结构化输出，则移除 text.format 配置
     if not ENABLE_RESPONSE_FORMAT and "text" in kwargs:

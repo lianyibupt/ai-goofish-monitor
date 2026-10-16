@@ -9,10 +9,22 @@ class EmptyAIResponseError(ValueError):
     """AI 返回了空内容。"""
 
 
-def extract_ai_response_content(response: Any) -> str:
+class TruncatedAIResponseError(ValueError):
+    """The model exhausted its output budget before producing a complete final answer."""
+
+
+def extract_ai_response_content(response: Any, *, allow_reasoning_fallback: bool = True) -> str:
     """从不同形态的 AI 响应中提取文本内容。"""
     if response is None:
         raise EmptyAIResponseError("AI响应对象为空。")
+
+    choices = getattr(response, "choices", None)
+    details = getattr(response, "incomplete_details", None)
+    reason = details.get("reason") if isinstance(details, dict) else getattr(details, "reason", None)
+    if (choices and getattr(choices[0], "finish_reason", None) == "length") or (
+        getattr(response, "status", None) == "incomplete" and reason == "max_output_tokens"
+    ):
+        raise TruncatedAIResponseError("AI输出因达到 token 上限被截断，未获得完整的最终答案。")
 
     if isinstance(response, (bytes, bytearray)):
         text = response.decode("utf-8", errors="replace")
@@ -25,7 +37,6 @@ def extract_ai_response_content(response: Any) -> str:
     if isinstance(output_text, str):
         return _normalize_text_content(output_text)
 
-    choices = getattr(response, "choices", None)
     if choices:
         message = getattr(choices[0], "message", None)
         if message is None:
@@ -37,7 +48,7 @@ def extract_ai_response_content(response: Any) -> str:
             return _normalize_text_content(_coerce_content_parts(content))
         except EmptyAIResponseError:
             reasoning_content = getattr(message, "reasoning_content", None)
-            if reasoning_content:
+            if allow_reasoning_fallback and reasoning_content:
                 return _normalize_text_content(_coerce_content_parts(reasoning_content))
             raise
 
@@ -102,17 +113,10 @@ def _extract_first_json_value(
     fallback_error: json.JSONDecodeError,
 ):
     decoder = json.JSONDecoder()
-    last_error: json.JSONDecodeError | None = None
-
     for start_index, char in enumerate(content):
         if char not in "{[":
             continue
-        try:
-            parsed, _ = decoder.raw_decode(content[start_index:])
-            return parsed
-        except json.JSONDecodeError as exc:
-            last_error = exc
-
-    if last_error is not None:
-        raise last_error
+        # Never turn a complete nested fragment of a truncated outer object into an answer.
+        parsed, _ = decoder.raw_decode(content[start_index:])
+        return parsed
     raise fallback_error

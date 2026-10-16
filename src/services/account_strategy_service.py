@@ -1,6 +1,7 @@
 """
 账号策略辅助函数
 """
+import os
 from typing import Optional
 
 
@@ -14,6 +15,27 @@ def clean_account_state_file(value: Optional[str]) -> Optional[str]:
     if not text or text in {"null", "undefined"}:
         return None
     return text
+
+
+def resolve_account_state_path(
+    value: Optional[str],
+    *,
+    state_dir: str,
+) -> Optional[str]:
+    """将账号名称或状态文件路径统一为可读取的状态文件路径。"""
+    account_state_file = clean_account_state_file(value)
+    if not account_state_file:
+        return None
+    if os.path.isabs(account_state_file) or os.path.dirname(account_state_file):
+        return account_state_file
+    if os.path.exists(account_state_file):
+        return account_state_file
+    filename = (
+        account_state_file
+        if account_state_file.endswith(".json")
+        else f"{account_state_file}.json"
+    )
+    return os.path.join(state_dir, filename)
 
 
 def normalize_account_strategy(

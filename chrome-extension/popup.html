@@ -50,6 +50,21 @@
   <textarea id="stateOutput" readonly></textarea>
   <button id="copyBtn">2.点击复制</button>
 
+  <hr>
+  <h3>在当前 Chrome 中运行一次监控</h3>
+  <button id="enableScheduledBtn">启用现有 Chrome 的定时任务</button>
+  <div id="scheduledStatus" role="status"></div>
+  <p>先在此 Chrome 中打开与任务关键词一致的闲鱼搜索结果页。</p>
+  <label for="taskName">已启用任务名称</label>
+  <input id="taskName" type="text" placeholder="例如 iPad air" style="width: 100%; box-sizing: border-box;">
+  <label for="cardLimit">本次最多分析的商品数</label>
+  <input id="cardLimit" type="number" min="1" max="50" value="3" style="width: 100%; box-sizing: border-box;">
+  <button id="runLocalBtn">从当前闲鱼标签页采集并导入本机项目</button>
+  <div id="runLocalStatus" role="status"></div>
+
   <script src="popup.js"></script>
+  <script src="search_cards.js"></script>
+  <script src="seller_credit.js"></script>
+  <script src="collector.js"></script>
 </body>
 </html>

@@ -17,6 +17,7 @@ from src.api.routes import (
     login_state,
     websocket,
     accounts,
+    chrome_bridge,
 )
 from src.api.dependencies import (
     set_process_service,
@@ -28,6 +29,7 @@ from src.services.process_service import ProcessService
 from src.services.scheduler_service import SchedulerService
 from src.services.task_log_cleanup_service import cleanup_task_logs
 from src.services.task_generation_service import TaskGenerationService
+from src.services.chrome_browser_import import ensure_bridge_config
 from src.infrastructure.persistence.sqlite_bootstrap import bootstrap_sqlite_storage
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
 from src.infrastructure.config.settings import settings as app_settings
@@ -68,6 +70,7 @@ async def lifespan(app: FastAPI):
     # 启动时
     print("正在启动应用...")
     bootstrap_sqlite_storage()
+    ensure_bridge_config()
     cleanup_task_logs(keep_days=app_settings.task_log_retention_days)
 
     # 重置所有任务状态为停止
@@ -112,6 +115,7 @@ app.include_router(results.router)
 app.include_router(login_state.router)
 app.include_router(websocket.router)
 app.include_router(accounts.router)
+app.include_router(chrome_bridge.router)
 
 # 挂载静态文件
 # 旧的静态文件目录（用于截图等）

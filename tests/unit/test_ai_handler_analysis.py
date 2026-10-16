@@ -241,3 +241,29 @@ def test_get_ai_analysis_uses_first_json_object_when_model_returns_multiple_obje
 
     assert result["is_recommended"] is True
     assert result["reason"] == "first"
+
+
+def test_get_ai_analysis_expands_budget_on_truncation(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    requests = []
+    valid = ('{"prompt_version":"v1","is_recommended":false,"reason":"ok",'
+             '"risk_tags":[],"criteria_analysis":{"seller_type":"unknown"}}')
+
+    async def fake_create(**kwargs):
+        requests.append(kwargs)
+        if len(requests) == 1:
+            return SimpleNamespace(choices=[SimpleNamespace(
+                finish_reason="length", message=SimpleNamespace(content=valid),
+            )])
+        return SimpleNamespace(choices=[SimpleNamespace(
+            finish_reason="stop", message=SimpleNamespace(content=valid),
+        )])
+
+    monkeypatch.setattr(ai_handler, "client", _build_fake_client(fake_create))
+    result = asyncio.run(ai_handler.get_ai_analysis(
+        {"商品信息": {"商品ID": "length-test", "商品标题": "测试商品"}},
+        prompt_text="请输出 JSON",
+    ))
+    assert result["reason"] == "ok"
+    assert len(requests) == 2
+    assert requests[1]["max_tokens"] > requests[0]["max_tokens"]

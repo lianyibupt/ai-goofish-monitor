@@ -56,6 +56,42 @@ def test_start_stop_task_updates_status(api_client, api_context, sample_task_pay
     assert process_service.stopped == [0]
 
 
+def test_task_list_uses_runtime_when_persisted_status_is_stale(
+    api_client, api_context, sample_task_payload
+):
+    api_client.post("/api/tasks/", json=sample_task_payload)
+    api_client.post("/api/tasks/start/0")
+    asyncio.run(api_context["task_service"].update_task_status(0, False))
+
+    assert api_client.get("/api/tasks").json()[0]["is_running"] is True
+    assert api_client.get("/api/tasks/0").json()["is_running"] is True
+
+
+def test_repeated_start_is_successful_without_duplicate_execution(
+    api_client, api_context, sample_task_payload
+):
+    api_client.post("/api/tasks/", json=sample_task_payload)
+    assert api_client.post("/api/tasks/start/0").status_code == 200
+    asyncio.run(api_context["task_service"].update_task_status(0, False))
+
+    repeated = api_client.post("/api/tasks/start/0")
+    assert repeated.status_code == 200
+    assert repeated.json()["already_running"] is True
+    assert api_context["process_service"].started == [(0, sample_task_payload["task_name"])]
+
+
+def test_stale_running_status_does_not_prevent_a_new_start(
+    api_client, api_context, sample_task_payload
+):
+    api_client.post("/api/tasks/", json=sample_task_payload)
+    asyncio.run(api_context["task_service"].update_task_status(0, True))
+
+    assert api_client.get("/api/tasks/0").json()["is_running"] is False
+    response = api_client.post("/api/tasks/start/0")
+    assert response.status_code == 200
+    assert api_context["process_service"].started == [(0, sample_task_payload["task_name"])]
+
+
 def test_generate_keyword_mode_task_without_ai_criteria(api_client):
     payload = {
         "task_name": "A7M4 关键词筛选",

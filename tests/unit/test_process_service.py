@@ -27,6 +27,7 @@ class FakeProcess:
 
 
 def test_process_service_marks_task_stopped_when_process_exits(monkeypatch, tmp_path):
+    monkeypatch.setenv("CHROME_BROWSER_MODE", "")
     fake_process = FakeProcess(pid=4321)
     events = []
 
@@ -109,3 +110,42 @@ def test_process_service_adds_debug_limit_arg_when_env_enabled(monkeypatch):
         "--debug-limit",
         "1",
     ]
+
+
+def test_stop_logs_reason_before_sending_termination(monkeypatch, tmp_path):
+    log_path = tmp_path / "task.log"
+    monkeypatch.setattr(
+        "src.services.process_service.build_task_log_path", lambda *_args: str(log_path)
+    )
+
+    async def scenario():
+        service = ProcessService()
+        process = FakeProcess(12345)
+        path, handle = service._open_log_file(6, "oppo watch x3")
+        service._register_runtime(6, "oppo watch x3", process, path, handle)
+
+        async def terminate(proc, task_id):
+            content = log_path.read_text(encoding="utf-8")
+            assert "Web 界面停止任务" in content
+            assert "PID=12345" in content
+            proc.finish(143)
+
+        monkeypatch.setattr(service, "_terminate_process", terminate)
+        assert await service.stop_task(6, reason="Web 界面停止任务")
+        assert not service.is_running(6)
+        assert "任务已被终止" in log_path.read_text(encoding="utf-8")
+
+    asyncio.run(scenario())
+
+
+def test_service_shutdown_has_a_distinct_stop_reason(monkeypatch):
+    service = ProcessService()
+    service.processes[6] = FakeProcess(12345)
+    reasons = []
+
+    async def stop(task_id, *, reason):
+        reasons.append((task_id, reason))
+
+    monkeypatch.setattr(service, "stop_task", stop)
+    asyncio.run(service.stop_all())
+    assert reasons == [(6, "Web 服务关闭或重启")]

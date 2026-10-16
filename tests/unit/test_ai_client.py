@@ -19,6 +19,25 @@ def _build_fake_client(responses_create_impl, chat_create_impl=None):
     return SimpleNamespace(responses=responses, chat=chat)
 
 
+def test_call_ai_explicitly_disables_deepseek_thinking():
+    client = AIClient.__new__(AIClient)
+    client.settings = SimpleNamespace(
+        base_url="https://api.deepseek.com/v1", model_name="deepseek-flash",
+        enable_response_format=True, enable_thinking=False,
+    )
+    requests = []
+
+    async def fake_create(**kwargs):
+        requests.append(kwargs)
+        return SimpleNamespace(choices=[SimpleNamespace(
+            finish_reason="stop", message=SimpleNamespace(content='{"ok":true}'),
+        )])
+
+    client.client = _build_fake_client(fake_create)
+    assert asyncio.run(client._call_ai([{"role": "user", "content": "输出 JSON"}])) == '{"ok":true}'
+    assert requests[0]["extra_body"]["thinking"] == {"type": "disabled"}
+
+
 def test_build_messages_without_images_uses_text_only_content():
     client = AIClient.__new__(AIClient)
 

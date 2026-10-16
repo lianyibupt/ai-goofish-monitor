@@ -1,8 +1,11 @@
 import asyncio
 import importlib
 import json
+import signal
 import sys
 import types
+
+import pytest
 
 
 def test_cli_runs_single_task_with_prompt(tmp_path, load_json_fixture, monkeypatch):
@@ -95,3 +98,45 @@ def test_cli_runs_keyword_mode_without_prompt_files(tmp_path, load_json_fixture,
     assert len(captured) == 1
     assert captured[0]["decision_mode"] == "keyword"
     assert captured[0]["ai_prompt_text"] == ""
+
+
+@pytest.mark.parametrize("stop_signal", [signal.SIGTERM, signal.SIGINT])
+def test_cli_reports_signal_cancellation_without_success(
+    tmp_path, monkeypatch, capsys, stop_signal
+):
+    fake_scraper = types.ModuleType("src.scraper")
+    handlers = {}
+    removed = []
+
+    async def scrape_until_stopped(task_config, debug_limit):
+        callback, args = handlers[stop_signal]
+        asyncio.get_running_loop().call_soon(callback, *args)
+        await asyncio.Future()
+
+    fake_scraper.scrape_xianyu = scrape_until_stopped
+    monkeypatch.setitem(sys.modules, "src.scraper", fake_scraper)
+    sys.modules.pop("spider_v2", None)
+    cli = importlib.import_module("spider_v2")
+    state_path = tmp_path / "state.json"
+    state_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(cli, "STATE_FILE", str(state_path))
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps([{
+        "task_name": "cancel-test", "enabled": True,
+        "keyword": "test", "decision_mode": "keyword", "keyword_rules": ["test"],
+    }]), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["spider_v2.py", "--config", str(config_path)])
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        monkeypatch.setattr(loop, "add_signal_handler", lambda sig, callback, *args: handlers.update({sig: (callback, args)}))
+        monkeypatch.setattr(loop, "remove_signal_handler", lambda sig: removed.append(sig))
+        return await asyncio.wait_for(cli.main(), timeout=1)
+
+    exit_code = asyncio.run(scenario())
+    output = capsys.readouterr().out
+    assert "正常结束" not in output
+    assert "已取消" in output
+    assert stop_signal.name in output
+    assert exit_code == 128 + stop_signal
+    assert set(removed) == {signal.SIGTERM, signal.SIGINT}

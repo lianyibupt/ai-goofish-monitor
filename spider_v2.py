@@ -6,6 +6,7 @@ import json
 import signal
 import contextlib
 import re
+from datetime import datetime
 
 from src.config import STATE_FILE
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
@@ -179,10 +180,28 @@ async def main():
 
     # 为每个启用的任务创建一个异步执行协程
     stop_event = asyncio.Event()
+    received_signal = None
     loop = asyncio.get_running_loop()
+    previous_handlers = {}
+
+    def request_shutdown(sig):
+        nonlocal received_signal
+        if received_signal is not None:
+            return
+        received_signal = sig
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(
+            f"[{timestamp}] 收到 {signal.Signals(sig).name}，"
+            f"正在停止采集并收尾已提交的分析任务 (PID={os.getpid()}, PPID={os.getppid()})。",
+            flush=True,
+        )
+        stop_event.set()
+
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
-            loop.add_signal_handler(sig, stop_event.set)
+            previous_handler = signal.getsignal(sig)
+            loop.add_signal_handler(sig, request_shutdown, sig)
+            previous_handlers[sig] = previous_handler
         except NotImplementedError:
             pass
 
@@ -193,7 +212,6 @@ async def main():
 
     async def _shutdown_watcher():
         await stop_event.wait()
-        print("\n收到终止信号，正在优雅退出，取消所有爬虫任务...")
         for t in tasks:
             if not t.done():
                 t.cancel()
@@ -207,14 +225,26 @@ async def main():
         shutdown_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await shutdown_task
+        for sig, handler in previous_handlers.items():
+            loop.remove_signal_handler(sig)
+            signal.signal(sig, handler)
 
-    print("\n--- 所有任务执行完毕 ---")
+    print("\n--- 本次任务已结束 ---")
+    has_failure = False
     for i, result in enumerate(results):
         task_name = active_task_configs[i]['task_name']
-        if isinstance(result, Exception):
+        if isinstance(result, asyncio.CancelledError):
+            has_failure = True
+            print(f"任务 '{task_name}' 已取消，未完成本次采集。")
+        elif isinstance(result, BaseException):
+            has_failure = True
             print(f"任务 '{task_name}' 因异常而终止: {result}")
         else:
             print(f"任务 '{task_name}' 正常结束，本次运行共处理了 {result} 个新商品。")
 
+    if received_signal is not None:
+        return 128 + received_signal
+    return 1 if has_failure else 0
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(asyncio.run(main()))
