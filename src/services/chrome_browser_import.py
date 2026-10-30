@@ -2,7 +2,9 @@
 
 import hmac
 import json
+import logging
 import os
+import re
 import secrets
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +12,10 @@ from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from src.domain.models.task import Task
+
+
+logger = logging.getLogger(__name__)
+MAX_CARD_TITLE_LENGTH = 20_000
 
 
 BRIDGE_CONFIG_PATH = Path(__file__).resolve().parents[2] / "chrome-extension" / "bridge-config.json"
@@ -69,7 +75,8 @@ def _image_url(value: str) -> str:
 
 
 def normalize_search_cards(
-    *, page_url: str, expected_keyword: str, cards: list[dict]
+    *, page_url: str, expected_keyword: str, cards: list[dict],
+    issues: list[str] | None = None,
 ) -> list[dict]:
     """Validate provenance and map visible cards to the existing result schema."""
     if not _is_goofish_url(page_url, "/search"):
@@ -80,6 +87,7 @@ def normalize_search_cards(
     if not isinstance(cards, list) or not 1 <= len(cards) <= 50:
         raise ValueError("每次仅接受 1 至 50 条商品卡片")
 
+    rejected = issues if issues is not None else []
     normalized = []
     seen_ids = set()
     for card in cards:
@@ -91,10 +99,28 @@ def normalize_search_cards(
         item_id = parse_qs(urlsplit(link).query).get("id", [""])[0]
         if not item_id.isdigit():
             raise ValueError("商品链接缺少有效 ID")
-        title = str(card.get("title") or "").strip()
-        price = str(card.get("price") or "").strip()
-        if not title or not price or len(title) > 1000 or len(price) > 80:
-            raise ValueError("商品标题或价格无效")
+        # Goofish's title attribute contains the full description, including
+        # layout whitespace. Legitimate descriptions can exceed 1000 characters.
+        # Preserve their content; a bad individual card must not reject its page.
+        title = " ".join(str(card.get("title") or "").split())
+        raw_price = card.get("price")
+        price = str(raw_price if raw_price is not None else "").strip()
+        # Integer and fractional prices are separate DOM nodes ("¥ 1899 .99").
+        price = re.sub(r"\s*\.\s*", ".", price)
+        reasons = []
+        if not title:
+            reasons.append("标题为空")
+        elif len(title) > MAX_CARD_TITLE_LENGTH:
+            reasons.append(f"标题超过 {MAX_CARD_TITLE_LENGTH} 字符（实际 {len(title)}）")
+        if not price:
+            reasons.append("价格为空")
+        elif len(price) > 80:
+            reasons.append(f"价格超过 80 字符（实际 {len(price)}）")
+        if reasons:
+            message = f"跳过商品 {item_id}：{'；'.join(reasons)}"
+            rejected.append(message)
+            logger.warning(message)
+            continue
         if item_id in seen_ids:
             continue
         seen_ids.add(item_id)
@@ -121,6 +147,8 @@ def normalize_search_cards(
                 "卖家注册时长": str(card.get("seller_registration") or "未知")[:80],
             }
         )
+    if not normalized:
+        raise ValueError("本页没有有效商品卡片；" + "；".join(rejected[:3]))
     return normalized
 
 

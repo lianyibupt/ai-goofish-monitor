@@ -76,20 +76,25 @@ async def import_search(
         if job is None or job.task_name != task.task_name or job.state not in {"claimed", "processing"}:
             raise HTTPException(status_code=404, detail="Chrome 任务已不存在或已取消")
     try:
+        issues = []
         cards = normalize_search_cards(
             page_url=payload.page_url,
             expected_keyword=task.keyword,
             cards=payload.cards,
+            issues=issues,
         )
         if payload.job_id:
+            for issue in issues:
+                process_service._write_chrome_log(job.task_id, job.task_name, issue)
             process_service.submit_chrome_import(
                 payload.job_id, lambda: ingest_search_cards(task, cards, run_id=payload.job_id)
             )
             return JSONResponse(status_code=202, content={
                 "accepted": True, "task_name": task.task_name,
                 "received": len(cards), "processing": True,
+                "skipped": len(issues), "warnings": issues,
             })
         result = await ingest_search_cards(task, cards)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"task_name": task.task_name, **result}
+    return {"task_name": task.task_name, **result, "skipped": len(issues), "warnings": issues}
